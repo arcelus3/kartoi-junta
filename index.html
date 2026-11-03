@@ -228,7 +228,10 @@ async function deriveKey(pass, salt) {
   return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 150000, hash: 'SHA-256' }, km, { name: 'AES-GCM', length: 256 }, false, ['decrypt', 'encrypt']);
 }
 const b64d = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const store = { get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} }, del: k => { try { localStorage.removeItem(k); } catch (e) {} } };
 async function decryptEndpoint(pass) {
+  if (!(crypto && crypto.subtle)) throw new Error('Este navegador no permite descifrar aquí (se requiere https).');
   const [salt, iv, ct] = ENDPOINT_ENC.split('.').map(b64d);
   const key = await deriveKey(pass, salt);
   const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
@@ -241,8 +244,8 @@ function showErr(msg) {
 async function load(pass) {
   let url;
   try { url = await decryptEndpoint(pass); }
-  catch (e) { localStorage.removeItem('kartoi_key'); return gate('Clave incorrecta.'); }
-  try { localStorage.setItem('kartoi_key', pass); } catch (e) {}
+  catch (e) { store.del('kartoi_key'); return gate(/https/.test(e.message) ? e.message : 'Clave incorrecta.'); }
+  store.set('kartoi_key', pass);
   document.getElementById('gate').style.display = 'none';
   document.getElementById('loading').style.display = 'block';
   try {
@@ -253,7 +256,7 @@ async function load(pass) {
     D.backendVersion = t.slice(0, i).replace(/[·\s]+$/, '').trim();
     render(D);
     document.getElementById('ver').innerHTML = 'Backend ' + D.backendVersion + ' · ' + FRONT_VERSION + ' · cargado ' + new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) + ' · <a href="#" id="salir">cambiar clave</a>';
-    document.getElementById('salir').onclick = e => { e.preventDefault(); localStorage.removeItem('kartoi_key'); location.reload(); };
+    document.getElementById('salir').onclick = e => { e.preventDefault(); store.del('kartoi_key'); location.reload(); };
   } catch (e) { showErr('No pude leer el backend: ' + e.message); }
 }
 function gate(msg) {
@@ -263,7 +266,7 @@ function gate(msg) {
   document.getElementById('gateKey').focus();
 }
 document.getElementById('gateForm').onsubmit = e => { e.preventDefault(); load(document.getElementById('gateKey').value.trim()); };
-let saved = null; try { saved = localStorage.getItem('kartoi_key'); } catch (e) {}
+const saved = store.get('kartoi_key');
 if (saved) load(saved); else gate();
 </script>
 </body>
