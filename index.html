@@ -209,8 +209,9 @@ function render(D) {
   });
 
   const mkTbl = arr => (arr && arr.length) ? '<table>' + arr.map(p => '<tr><td>' + p[0] + '</td><td><span class="tag">' + p[1] + '</span></td></tr>').join('') + '</table>' : '<p class="note">Sin datos.</p>';
-  document.getElementById('tblProsp').innerHTML = mkTbl(P.prospectos);
-  document.getElementById('tblNP').innerHTML = mkTbl(P.nuevosProductos);
+  const PP = (P.prospectos && P.prospectos.length) ? P : (D.prevMes || {}); // si Ander no ha creado la pestaña del mes, usar la anterior
+  document.getElementById('tblProsp').innerHTML = mkTbl(PP.prospectos) + (PP !== P && PP.mes ? '<p class="note">Pestaña de ' + PP.mes.toLowerCase() + ' del archivo de Ander (no hay del mes en curso).</p>' : '');
+  document.getElementById('tblNP').innerHTML = mkTbl(PP.nuevosProductos);
 
   document.getElementById('fuentes').textContent = 'Fuentes: ventas por cliente en vivo de "KARTOI - REPORTES SEMANALES" (detalle de facturas SAE) · pronóstico IA (Claude, día 1 y ajuste día 10) · pipeline del archivo de Ander · cobranza del PDF semanal de antigüedad de saldos (cargado por Claude). Ventas sin IVA; cartera con IVA.';
 }
