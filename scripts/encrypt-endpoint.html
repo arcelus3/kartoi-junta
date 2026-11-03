@@ -1,0 +1,15 @@
+<!DOCTYPE html><meta charset="utf-8"><title>Cifrar endpoint</title>
+<body style="font-family:sans-serif;max-width:700px;margin:40px auto">
+<h3>Cifrar URL del backend para index.html</h3>
+<p>URL /exec: <input id="u" style="width:100%"></p><p>Clave de acceso: <input id="p" style="width:100%"></p>
+<button onclick="go()">Generar</button><pre id="o" style="white-space:pre-wrap;word-break:break-all"></pre>
+<script>
+const b64 = a => btoa(String.fromCharCode(...new Uint8Array(a)));
+async function go(){
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(document.getElementById('p').value), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey({name:'PBKDF2', salt, iterations:150000, hash:'SHA-256'}, km, {name:'AES-GCM', length:256}, false, ['encrypt']);
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, key, new TextEncoder().encode(document.getElementById('u').value));
+  document.getElementById('o').textContent = b64(salt) + '.' + b64(iv) + '.' + b64(ct);
+}
+</script></body>

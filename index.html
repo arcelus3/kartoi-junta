@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Kartoi — Junta de dirección</title>
+<style>
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #faf9f5; color: #1a1a19; margin: 0; padding: 24px 28px 48px; font-size: 15px; line-height: 1.5; max-width: 1000px; margin: 0 auto; }
+h1 { font-size: 22px; font-weight: 600; margin: 0 0 2px; }
+h2 { font-size: 16px; font-weight: 600; margin: 28px 0 10px; border-bottom: 1px solid #e1e0d9; padding-bottom: 6px; }
+.sub { color: #6b6a64; font-size: 13px; margin: 0 0 4px; }
+.chip { display: inline-block; font-size: 12px; padding: 2px 10px; border-radius: 10px; background: #eef2f8; color: #185fa5; margin: 0 6px 6px 0; }
+.chip.warn { background: #fdf0e6; color: #993c1d; }
+.chip.ok { background: #e7f4ec; color: #1d6b45; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+.card { background: #fff; border: 1px solid #e7e6df; border-radius: 10px; padding: 12px 14px; }
+.card .l { font-size: 12px; color: #6b6a64; }
+.card .v { font-size: 21px; font-weight: 600; margin-top: 2px; }
+.card .d { font-size: 12px; color: #6b6a64; margin-top: 2px; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; background: #fff; border: 1px solid #e7e6df; border-radius: 10px; overflow: hidden; }
+th { text-align: left; font-weight: 600; font-size: 12px; color: #6b6a64; padding: 8px 10px; background: #f4f3ee; }
+td { padding: 7px 10px; border-top: 1px solid #efeee8; vertical-align: top; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+.neg { color: #a32d2d; }
+.chartbox { position: relative; height: 240px; background: #fff; border: 1px solid #e7e6df; border-radius: 10px; padding: 12px; margin: 10px 0; }
+.foot { font-size: 12px; color: #8a8983; margin-top: 30px; border-top: 1px solid #e1e0d9; padding-top: 10px; }
+.err { background: #fdf0f0; color: #a32d2d; padding: 10px 14px; border-radius: 8px; font-size: 13px; margin: 10px 0; }
+.note { font-size: 12.5px; color: #6b6a64; margin: 6px 0 0; }
+.tag { font-size: 11px; padding: 1px 8px; border-radius: 8px; background: #f1efe8; color: #5f5e5a; white-space: nowrap; }
+#loading { text-align: center; padding: 60px 0; color: #6b6a64; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 640px) { .two { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<h1>Kartoi — Junta de dirección semanal</h1>
+<p class="sub" id="hoy"></p>
+<div id="chips"></div>
+<div id="errores"></div>
+<div id="gate" style="display:none;max-width:420px;margin:60px auto;text-align:center">
+  <p class="sub">Dashboard interno de Kartoi. Escribe la clave de acceso (se guarda en este dispositivo).</p>
+  <form id="gateForm"><input id="gateKey" type="password" autocomplete="current-password" placeholder="Clave" style="font-size:15px;padding:8px 10px;border:1px solid #d6d5cd;border-radius:8px;width:220px"> <button type="submit" style="font-size:14px;padding:8px 14px;border:1px solid #2a78d6;background:#2a78d6;color:#fff;border-radius:8px;cursor:pointer">Entrar</button></form>
+  <p class="note" id="gateMsg"></p>
+</div>
+<div id="loading" style="display:none">Cargando datos de Drive…</div>
+<div id="app" style="display:none">
+  <h2>1 · Avance de ventas del mes</h2>
+  <div class="cards" id="kpis"></div>
+  <div class="chartbox"><canvas id="chVentas"></canvas></div>
+  <h2>2 · Clientes grandes — facturado, pronóstico y cartera</h2>
+  <div id="tblClientes"></div>
+  <p class="note">Cierre del mes anterior y facturado del mes: detalle de facturas SAE en vivo (sin IVA). Pronóstico: editable en la hoja "Kartoi Dashboard - Datos" → Forecast_Mes. Vencido: con IVA.</p>
+  <h2>3 · Cobranza</h2>
+  <div class="cards" id="kpisCob"></div>
+  <div class="chartbox"><canvas id="chCob"></canvas></div>
+  <h2>4 · Pipeline comercial</h2>
+  <div class="two">
+    <div><p class="sub" style="font-weight:600">Prospectos</p><div id="tblProsp"></div></div>
+    <div><p class="sub" style="font-weight:600">Nuevos productos</p><div id="tblNP"></div></div>
+  </div>
+  <div class="foot" id="fuentes"></div>
+  <div class="foot" id="ver" style="border:none;margin-top:6px"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
+<script>
+const fmt = v => '$' + Math.round(v).toLocaleString('en-US');
+const fmtK = v => '$' + Math.round(v / 1000).toLocaleString('en-US') + 'K';
+
+function cxcTabla(cfg, D) {
+  let det = null;
+  try { det = cfg.cxc_detalle ? JSON.parse(cfg.cxc_detalle) : null; } catch (e) { det = null; }
+  const notas = {}; (D.vencido || []).forEach(r => notas[r[0]] = r[2] || '');
+  let h = '<div class="card" style="grid-column:1/-1;overflow-x:auto"><div class="l">Cuentas por cobrar por cliente (corte ' + (cfg.corte_cobranza || '') + ')</div>';
+  if (det && det.rows) {
+    const c = v => v ? fmtK(v) : '<span style="color:#c3c2b7">—</span>';
+    const tot = [0,0,0,0,0,0];
+    h += '<table style="margin-top:8px;font-size:13px"><tr><th>Cliente</th><th class="n">Saldo total</th><th class="n">Vencido</th><th class="n">1-30</th><th class="n">31-60</th><th class="n">61-90</th><th class="n">91+</th><th>Nota</th></tr>';
+    det.rows.forEach(r => {
+      for (let i = 0; i < 6; i++) tot[i] += r[i + 1] || 0;
+      const crit = (r[5] || 0) + (r[6] || 0) > 0;
+      h += '<tr><td><b>' + r[0] + '</b></td><td class="n">' + fmtK(r[1]) + '</td><td class="n' + (r[2] > 200000 || crit ? ' neg' : '') + '"><b>' + c(r[2]) + '</b></td>' +
+        '<td class="n">' + c(r[3]) + '</td><td class="n">' + c(r[4]) + '</td><td class="n' + (r[5] ? ' neg' : '') + '">' + c(r[5]) + '</td><td class="n' + (r[6] ? ' neg' : '') + '">' + c(r[6]) + '</td>' +
+        '<td style="font-size:12px;color:#6b6a64">' + (notas[r[0]] || (r[2] ? '' : 'al corriente')) + '</td></tr>';
+    });
+    h += '<tr style="background:#f4f3ee;font-weight:600"><td>Total (' + det.rows.length + ' clientes)</td>' + tot.map(v => '<td class="n">' + fmtK(v) + '</td>').join('') + '<td style="font-size:12px;color:#6b6a64">= cartera total / cartera vencida</td></tr></table>';
+  } else {
+    h += '<table style="border:none;margin-top:6px">' + (D.vencido || []).map(t => '<tr><td style="border:none;padding:3px 8px 3px 0">' + t[0] + '</td><td class="n" style="border:none;padding:3px 8px"><b>' + fmtK(t[1]) + '</b></td><td style="border:none;padding:3px 0;font-size:12px;color:#6b6a64">' + (t[2] || '') + '</td></tr>').join('') + '</table>';
+  }
+  document.getElementById('kpisCob').insertAdjacentHTML('beforeend', h + '</div>');
+}
+
+function render(D) {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('hoy').textContent = new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  if (D.errors && D.errors.length)
+    document.getElementById('errores').innerHTML = D.errors.map(e => '<div class="err">' + e + '</div>').join('');
+
+  const cfg = D.config || {};
+  const P = D.pronostico || {};
+  const M3 = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const ML = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const mesActual = new Date().getMonth();
+  const mesPrev = (mesActual + 11) % 12;
+  const meta = P.meta || (cfg.meta_mes ? Number(String(cfg.meta_mes).replace(/[^0-9.]/g, '')) : 0) || 2400000;
+
+  // Única fuente de ventas: detalle de facturas de "KARTOI - REPORTES SEMANALES" (vía Code.gs → getVentasLive_).
+  // Es válida aunque el mes en curso sume $0 (primeros días del mes). El archivo de Ander solo es respaldo si Drive falla.
+  const live = (D.ventasLive && D.ventasLive.porMes && D.ventasLive.porMes.length === 12) ? D.ventasLive : null;
+  const saeMtdTotal = live ? live.total : (P.sae || 0);
+  const prevTotal = live ? live.totalPrev : ((D.prevMes || {}).sae || 0);
+  const actStr = live ? new Date(live.actualizado).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }) : '';
+  const saeCorte = live ? ('SAE en vivo · hoja actualizada ' + actStr + ' · cierre ' + ML[mesPrev] + ' ' + fmtK(live.totalPrev)) : ('archivo de Ander, corte ' + (P.corte || '?'));
+  const fcTotal = Object.values(D.forecast || {}).reduce((a, f) => a + f.monto, 0);
+
+  let chips = '<span class="chip' + (live ? ' ok' : ' warn') + '">Ventas: ' + saeCorte + '</span><span class="chip">Cobranza al ' + (cfg.corte_cobranza || '—') + '</span>';
+  if (!live) chips += '<span class="chip warn">Sin lectura de "Reportes Semanales" — revisar errores arriba</span>';
+  document.getElementById('chips').innerHTML = chips;
+
+  // Mes de referencia de la junta: la primera semana del mes (o mientras el mes en curso sume $0) se revisa el CIERRE del mes
+  // anterior; después, el acumulado del mes en curso. Override opcional en Config → mes_junta = 'actual' | 'anterior'.
+  const dia = new Date().getDate();
+  const refPrev = cfg.mes_junta ? String(cfg.mes_junta).toLowerCase().indexOf('ant') === 0 : (dia <= 7 || saeMtdTotal === 0);
+  const prevVsMeta = prevTotal ? Math.round((prevTotal / meta - 1) * 100) : null;
+  const cardCierre = ['Cierre ' + ML[mesPrev], fmt(prevTotal), prevVsMeta == null ? '' : ((prevVsMeta >= 0 ? '+' : '') + prevVsMeta + '% vs meta' + (live && live.facturasPrev != null ? ' · ' + live.facturasPrev + ' facturas' : '')), prevVsMeta != null && prevVsMeta < 0];
+  const cardMtd = ['Facturado ' + ML[mesActual] + ' (acum.)', fmt(saeMtdTotal), (live ? live.facturas + ' facturas · ' : '') + 'sin IVA', false];
+  const cards = refPrev
+    ? [['Meta mensual', fmt(meta), 'vigente desde jun-26', false], cardCierre, cardMtd]
+    : [['Meta ' + ML[mesActual], fmt(meta), '', false], cardMtd, cardCierre];
+  cards.splice(refPrev ? 3 : 2, 0,
+    ['Pronóstico cierre ' + ML[mesActual], fmtK(fcTotal), Math.round(fcTotal / meta * 100) + '% de la meta', false],
+    ['Faltante vs meta ' + ML[mesActual], fmt(Math.max(0, meta - fcTotal)), 'sobre pronóstico', false]);
+  document.getElementById('kpis').innerHTML = cards.map(x => '<div class="card"><div class="l">' + x[0] + '</div><div class="v' + (x[3] ? ' neg' : '') + '">' + x[1] + '</div><div class="d">' + x[2] + '</div></div>').join('');
+
+  // Gráfica: meses cerrados + mes en curso, siempre de la hoja en vivo. La meta por mes sale del archivo de Ander si existe.
+  const metaMap = {}; (D.historia || []).forEach(x => metaMap[x.mes] = x.meta);
+  let hist = [];
+  if (live) {
+    for (let i = 0; i <= mesActual; i++) hist.push({ mes: M3[i], sae: live.porMes[i], meta: metaMap[M3[i]] || meta });
+  } else {
+    hist = D.historia || [];
+  }
+  new Chart(document.getElementById('chVentas'), {
+    data: { labels: hist.map(h => h.mes),
+      datasets: [
+        { type: 'bar', label: 'Ventas SAE', data: hist.map(h => Math.round(h.sae / 1000)), backgroundColor: '#2a78d6', borderRadius: 4, maxBarThickness: 34 },
+        { type: 'bar', label: 'Pronóstico mes en curso', data: hist.map((h, i) => i === hist.length - 1 ? Math.round(fcTotal / 1000) : null), backgroundColor: '#b5d4f4', borderRadius: 4, maxBarThickness: 34 },
+        { type: 'line', label: 'Meta', data: hist.map(h => Math.round((h.meta || meta) / 1000)), borderColor: '#993c1d', borderWidth: 2, borderDash: [6, 4], pointRadius: 0, stepped: true },
+      ] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } }, tooltip: { callbacks: { label: c => c.dataset.label + ': $' + c.parsed.y + 'K' } } },
+      scales: { y: { ticks: { callback: v => '$' + v + 'K' } }, x: { grid: { display: false } } } }
+  });
+
+  const factRows = live ? Object.keys(live.porCliente).map(k => [k, live.porCliente[k]])
+    : (P.clientes || []).map(c => [c.nombre, c.fact || 0]);
+  const saeMap = {}; factRows.forEach(r => { if (r[1]) saeMap[r[0]] = r[1]; });
+  const vencMap = {}; (D.vencido || []).forEach(r => vencMap[r[0]] = r[1]);
+  const prevRows = live ? Object.keys(live.porClientePrev).map(k => [k, live.porClientePrev[k]])
+    : ((D.prevMes || {}).clientes || []).map(c => [c.nombre, c.fact || 0]);
+  const prevMap = {}; prevRows.forEach(r => prevMap[r[0]] = r[1]);
+  const grandesList = ['Conver', 'MPE', 'Intica', 'Fuego', 'Dambor', 'Demotechnic', 'Entrada Group', 'Biokemia', 'Progel'];
+  let rows = '';
+  for (const g of grandesList) {
+    const f = (D.forecast || {})[g] || { monto: 0, nota: '' };
+    const v = vencMap[g] || vencMap[g === 'Demotechnic' ? 'Demo' : ''] || 0;
+    rows += '<tr><td><b>' + g + '</b></td><td class="n">' + (prevMap[g] != null ? fmtK(prevMap[g]) : '—') +
+      '</td><td class="n">' + (saeMap[g] ? fmtK(saeMap[g]) : '—') + '</td><td class="n">' + fmtK(f.monto) +
+      '</td><td class="n' + (v > 200000 ? ' neg' : '') + '">' + (v ? fmtK(v) : '—') +
+      '</td><td style="font-size:12.5px">' + (f.nota || '—') + '</td></tr>';
+  }
+  const grandes = new Set(grandesList);
+  let rFact = 0, rFc = 0, rPrev = 0, rVenc = 0, tFact = 0, tFc = 0, tPrev = 0, tVenc = 0;
+  factRows.forEach(r => { tFact += r[1] || 0; if (!grandes.has(r[0])) rFact += r[1] || 0; });
+  Object.keys(D.forecast || {}).forEach(k => { const m = D.forecast[k].monto || 0; tFc += m; if (!grandes.has(k)) rFc += m; });
+  prevRows.forEach(r => { tPrev += r[1] || 0; if (!grandes.has(r[0])) rPrev += r[1] || 0; });
+  (D.vencido || []).forEach(r => { tVenc += r[1] || 0; if (!grandes.has(r[0])) rVenc += r[1] || 0; });
+  rows += '<tr><td>Resto de clientes</td><td class="n">' + (rPrev ? fmtK(rPrev) : '—') + '</td><td class="n">' + (rFact ? fmtK(rFact) : '—') +
+    '</td><td class="n">' + fmtK(rFc) + '</td><td class="n">' + (rVenc ? fmtK(rVenc) : '—') + '</td><td>—</td></tr>';
+  rows += '<tr style="background:#f4f3ee;font-weight:600"><td>Total</td><td class="n">' + (tPrev ? fmtK(tPrev) : '—') + '</td><td class="n">' + fmtK(tFact) +
+    '</td><td class="n">' + fmtK(tFc) + '</td><td class="n">' + fmtK(tVenc) + '</td><td></td></tr>';
+  document.getElementById('tblClientes').innerHTML =
+    '<table><tr><th>Cliente</th><th class="n">Cierre ' + ML[mesPrev] + '</th><th class="n">Fact. ' + ML[mesActual] + '</th><th class="n">Pronóstico ' + ML[mesActual] + '</th><th class="n">Vencido</th><th>Nota</th></tr>' + rows + '</table>';
+
+  const serie = D.cobranzaSerie || [];
+  const last = serie[serie.length - 1] || [];
+  document.getElementById('kpisCob').innerHTML = [
+    ['Vencido total', fmtK(last[3] || 0), 'meta ≤ $1,000K'],
+    ['Vencido > 30 días', fmtK(last[4] || 0), ''],
+    ['Cartera total', fmtK(cfg.cxc_total || 0), ''],
+    ['DSO', (cfg.dso || '—') + ' días', '2025 cerró en ~42'],
+  ].map(x => '<div class="card"><div class="l">' + x[0] + '</div><div class="v">' + x[1] + '</div><div class="d">' + x[2] + '</div></div>').join('');
+  cxcTabla(cfg, D);
+
+  new Chart(document.getElementById('chCob'), {
+    type: 'line',
+    data: { labels: serie.map(r => r[0]), datasets: [
+      { label: 'Vencido total', data: serie.map(r => Math.round(r[3] / 1000)), borderColor: '#5f5e5a', borderWidth: 2, pointRadius: 2, tension: 0.15 },
+      { label: 'Fuego', data: serie.map(r => Math.round(r[1] / 1000)), borderColor: '#eb6834', borderWidth: 2, pointRadius: 2, tension: 0.15 },
+      { label: 'Intica', data: serie.map(r => Math.round(r[2] / 1000)), borderColor: '#2a78d6', borderWidth: 2, borderDash: [5, 4], pointRadius: 2, tension: 0.15 },
+    ] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } }, tooltip: { callbacks: { label: x => x.dataset.label + ': $' + x.parsed.y + 'K' } } },
+      scales: { y: { beginAtZero: true, ticks: { callback: v => '$' + v + 'K' } }, x: { ticks: { autoSkip: false, maxRotation: 60, font: { size: 10 } }, grid: { display: false } } } }
+  });
+
+  const mkTbl = arr => (arr && arr.length) ? '<table>' + arr.map(p => '<tr><td>' + p[0] + '</td><td><span class="tag">' + p[1] + '</span></td></tr>').join('') + '</table>' : '<p class="note">Sin datos.</p>';
+  document.getElementById('tblProsp').innerHTML = mkTbl(P.prospectos);
+  document.getElementById('tblNP').innerHTML = mkTbl(P.nuevosProductos);
+
+  document.getElementById('fuentes').textContent = 'Fuentes: ventas por cliente en vivo de "KARTOI - REPORTES SEMANALES" (detalle de facturas SAE) · pronóstico IA (Claude, día 1 y ajuste día 10) · pipeline del archivo de Ander · cobranza del PDF semanal de antigüedad de saldos (cargado por Claude). Ventas sin IVA; cartera con IVA.';
+}
+
+
+/* ---------- Carga de datos: endpoint Apps Script cifrado con clave de acceso ----------
+   El URL del backend va cifrado (AES-GCM, clave derivada con PBKDF2) para que este repo pueda ser público
+   sin exponer el endpoint. La clave se pide una vez y se guarda en localStorage.
+   Para rotar: ejecutar scripts/encrypt-endpoint.html y pegar el nuevo blob en ENDPOINT_ENC. */
+const FRONT_VERSION = 'front 2026-11-03a';
+const ENDPOINT_ENC = '/XGfXTtEbwgIP6k6J6sXzQ==.Pgq1b7zDrp4T4QYB.sioVByoxtWZvmk9gx+nD4RbRILVXXgkugMJbrGrw9JhjhDRItRZXp/pekhSopmHSkwV7+KsQp+7jt1KgN653/6XnX+ISwziUOSlTeU0QipwiBe6ERlFOLXzfS9XyOqhjwgkAnxsG5dhUOtmDyhfmDPdog1uGGHRl3f2Bwj2VwDKZKg==';
+
+async function deriveKey(pass, salt) {
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 150000, hash: 'SHA-256' }, km, { name: 'AES-GCM', length: 256 }, false, ['decrypt', 'encrypt']);
+}
+const b64d = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function decryptEndpoint(pass) {
+  const [salt, iv, ct] = ENDPOINT_ENC.split('.').map(b64d);
+  const key = await deriveKey(pass, salt);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+  return new TextDecoder().decode(pt);
+}
+function showErr(msg) {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('errores').innerHTML = '<div class="err">' + msg + '</div>';
+}
+async function load(pass) {
+  let url;
+  try { url = await decryptEndpoint(pass); }
+  catch (e) { localStorage.removeItem('kartoi_key'); return gate('Clave incorrecta.'); }
+  try { localStorage.setItem('kartoi_key', pass); } catch (e) {}
+  document.getElementById('gate').style.display = 'none';
+  document.getElementById('loading').style.display = 'block';
+  try {
+    const t = await fetch(url + '?page=debug', { cache: 'no-store' }).then(r => r.text());
+    const i = t.indexOf('{');
+    if (i < 0) throw new Error('respuesta inesperada del backend');
+    const D = JSON.parse(t.slice(i));
+    D.backendVersion = t.slice(0, i).replace(/[·\s]+$/, '').trim();
+    render(D);
+    document.getElementById('ver').innerHTML = 'Backend ' + D.backendVersion + ' · ' + FRONT_VERSION + ' · cargado ' + new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) + ' · <a href="#" id="salir">cambiar clave</a>';
+    document.getElementById('salir').onclick = e => { e.preventDefault(); localStorage.removeItem('kartoi_key'); location.reload(); };
+  } catch (e) { showErr('No pude leer el backend: ' + e.message); }
+}
+function gate(msg) {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('gate').style.display = 'block';
+  document.getElementById('gateMsg').textContent = msg || '';
+  document.getElementById('gateKey').focus();
+}
+document.getElementById('gateForm').onsubmit = e => { e.preventDefault(); load(document.getElementById('gateKey').value.trim()); };
+let saved = null; try { saved = localStorage.getItem('kartoi_key'); } catch (e) {}
+if (saved) load(saved); else gate();
+</script>
+</body>
+</html>
